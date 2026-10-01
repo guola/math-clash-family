@@ -11,6 +11,48 @@ type Screen = "home" | "lobby" | "countdown" | "play" | "result";
 type GameMode = "solo" | "duo";
 type ScoreRow = { id: number; nickname: string; score: number; bestCombo: number; mode: GameMode };
 type Player = { id: string; nickname: string; slot: number; score: number; combo: number; finished: boolean };
+type DopaAudio = {
+  unlock: () => void; setMuted: (muted: boolean) => void; setVolume: (volume: number) => void;
+  setLevel: (level: number, bpm?: number) => void; startMusic: () => void; stopMusic: () => void;
+  update: () => void; pulse: () => { kick: number; phase: number; beat: number };
+  keyTap: (combo: number) => void; correct: (combo: number, energy: number) => void;
+  wrong: (energy: number) => void; jingle: () => void; finale: () => void;
+};
+type DopaFx = {
+  motion: number; reduced: boolean;
+  burst: (x: number, y: number, options?: Record<string, unknown>) => void;
+  ring: (x: number, y: number, options?: Record<string, unknown>) => void;
+  text: (x: number, y: number, value: string, options?: Record<string, unknown>) => void;
+  fireworks: (width: number, height: number, count?: number, top?: number, bottom?: number) => void;
+  streamers: (width: number, height: number, count?: number) => void;
+  rain: (width: number, count?: number, options?: Record<string, unknown>) => void;
+  update: (delta: number) => void; draw: () => void;
+};
+type DopaBackdrop = { state: { E: number; kick: number; flash: number; reach: number; hue: number; cx: number; cy: number; theme: number }; render: (time: number) => void; setTheme: (name: string) => void };
+type DopaBridge = {
+  AudioEngine: new () => DopaAudio;
+  Backdrop: new (canvas: HTMLCanvasElement, fallback: HTMLDivElement) => DopaBackdrop;
+  FX: new (canvas: HTMLCanvasElement, max?: number) => DopaFx;
+};
+
+declare global { interface Window { MathClashDopa?: DopaBridge } }
+
+function loadDopaBridge(): Promise<DopaBridge> {
+  if (window.MathClashDopa) return Promise.resolve(window.MathClashDopa);
+  return new Promise((resolve, reject) => {
+    const ready = () => window.MathClashDopa ? resolve(window.MathClashDopa) : reject(new Error("Effects engine did not initialize."));
+    window.addEventListener("math-clash-dopa-ready", ready, { once: true });
+    let script = document.querySelector<HTMLScriptElement>('script[data-math-clash-dopa]');
+    if (!script) {
+      script = document.createElement("script");
+      script.type = "module";
+      script.src = "/dopa/bridge.js";
+      script.dataset.mathClashDopa = "true";
+      script.addEventListener("error", () => reject(new Error("Effects engine could not be loaded.")), { once: true });
+      document.head.appendChild(script);
+    }
+  });
+}
 
 const GAME_SECONDS = 45;
 
@@ -60,18 +102,6 @@ function validateEmptyToolInput(input: unknown) {
   }
 }
 
-function tone(context: AudioContext, frequency: number, start: number, duration: number, volume: number, type: OscillatorType = "sine") {
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = type;
-  oscillator.frequency.setValueAtTime(frequency, start);
-  gain.gain.setValueAtTime(volume, start);
-  gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start(start);
-  oscillator.stop(start + duration);
-}
-
 export default function Home() {
   const [lang, setLang] = useState<Lang>("zh");
   const [screen, setScreen] = useState<Screen>("home");
@@ -101,7 +131,15 @@ export default function Home() {
   const [leaderboard, setLeaderboard] = useState<ScoreRow[]>([]);
   const [saved, setSaved] = useState(false);
   const [resultOpponentScore, setResultOpponentScore] = useState<number | null>(null);
-  const audioRef = useRef<AudioContext | null>(null);
+  const audioRef = useRef<DopaAudio | null>(null);
+  const backdropRef = useRef<DopaBackdrop | null>(null);
+  const fxRef = useRef<DopaFx | null>(null);
+  const fxBackRef = useRef<DopaFx | null>(null);
+  const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fallbackRef = useRef<HTMLDivElement | null>(null);
+  const fxCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fxBackCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const questionStageRef = useRef<HTMLElement | null>(null);
   const scoreRef = useRef(0);
   const comboRef = useRef(0);
   const bestComboRef = useRef(0);
@@ -110,35 +148,34 @@ export default function Home() {
   const t = copy[lang];
   const question = useMemo(() => makeQuestion(seed, questionIndex), [seed, questionIndex]);
 
-  const audio = useCallback(() => {
-    if (!sound || typeof window === "undefined") return null;
-    audioRef.current ??= new AudioContext();
-    if (audioRef.current.state === "suspended") void audioRef.current.resume();
+  const unlockAudio = useCallback(() => {
+    if (!sound) return null;
+    audioRef.current?.unlock();
+    audioRef.current?.setMuted(false);
     return audioRef.current;
   }, [sound]);
 
-  const playTap = useCallback(() => {
-    const context = audio();
-    if (context) tone(context, 260, context.currentTime, .045, .04, "square");
-  }, [audio]);
+  const playTap = useCallback(() => { unlockAudio()?.keyTap(comboRef.current); }, [unlockAudio]);
 
   const playCorrect = useCallback((nextCombo: number) => {
-    const context = audio();
-    if (!context) return;
-    const now = context.currentTime;
-    const lift = Math.min(nextCombo, 12) * 8;
-    tone(context, 440 + lift, now, .12, .075, "triangle");
-    tone(context, 660 + lift, now + .07, .18, .07, "triangle");
-    if (nextCombo >= 5) tone(context, 880 + lift, now + .14, .22, .055, "sine");
-  }, [audio]);
+    const energy = Math.min(1.15, .12 + nextCombo / 10);
+    unlockAudio()?.correct(nextCombo, energy);
+    const rect = questionStageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height * .48;
+    fxRef.current?.burst(x, y, { count: 14 + Math.round(32 * energy), speed: 320 + 420 * energy, kinds: ["star", "spark", "confetti", "coin"], up: 120, life: .7 });
+    fxRef.current?.ring(x, y, { color: energy > .55 ? "#ffd23f" : "#ff7ab6", radius: 70 + 100 * energy, width: 7 });
+    fxRef.current?.text(x, y - 40, copy[lang].correct, { color: "#ffd23f", size: 24 + Math.round(16 * energy), vy: -110, life: 1 });
+    if (energy > .45) fxBackRef.current?.burst(x, y, { count: Math.round(45 * energy), speed: 760, kinds: ["confetti", "star", "spark"], up: 220, life: .8 });
+    if (nextCombo > 0 && nextCombo % 5 === 0) fxBackRef.current?.streamers(window.innerWidth, window.innerHeight, 5 + Math.floor(nextCombo / 5));
+    if (backdropRef.current) backdropRef.current.state.flash = Math.min(.45, .12 + energy * .18);
+  }, [lang, unlockAudio]);
 
   const playWrong = useCallback(() => {
-    const context = audio();
-    if (!context) return;
-    const now = context.currentTime;
-    tone(context, 170, now, .18, .055, "sawtooth");
-    tone(context, 135, now + .08, .2, .04, "sawtooth");
-  }, [audio]);
+    const energy = Math.min(1, .12 + comboRef.current / 10);
+    unlockAudio()?.wrong(energy);
+  }, [unlockAudio]);
 
   const loadLeaderboard = useCallback(async () => {
     try {
@@ -158,6 +195,74 @@ export default function Home() {
   }, []);
   useEffect(() => { localStorage.setItem("math-clash-lang", lang); }, [lang]);
 
+  useEffect(() => {
+    let active = true;
+    void loadDopaBridge().then((bridge) => {
+      if (!active) return;
+      const engine = new bridge.AudioEngine();
+      engine.setVolume(.82);
+      engine.setMuted(!sound);
+      audioRef.current = engine;
+    });
+    return () => { active = false; audioRef.current?.stopMusic(); };
+  }, []);
+
+  useEffect(() => { audioRef.current?.setMuted(!sound); }, [sound]);
+
+  useEffect(() => {
+    let active = true;
+    let frame = 0;
+    let previous = performance.now();
+    void loadDopaBridge().then((bridge) => {
+      if (!active || !bgCanvasRef.current || !fallbackRef.current || !fxCanvasRef.current || !fxBackCanvasRef.current) return;
+      const backdrop = new bridge.Backdrop(bgCanvasRef.current, fallbackRef.current);
+      const front = new bridge.FX(fxCanvasRef.current, 420);
+      const back = new bridge.FX(fxBackCanvasRef.current, 600);
+      front.motion = 1; back.motion = 1;
+      backdrop.setTheme(screen === "lobby" ? "night" : screen === "result" ? "festival" : "classic");
+      backdropRef.current = backdrop; fxRef.current = front; fxBackRef.current = back;
+      if (screen === "home") back.rain(window.innerWidth, 28, { kinds: ["confetti", "star"] });
+      if (screen === "result") { back.fireworks(window.innerWidth, window.innerHeight, 7, .08, .5); front.rain(window.innerWidth, 70, { kinds: ["confetti", "star", "coin"] }); }
+      const render = (time: number) => {
+        if (!active) return;
+        const delta = Math.min(.05, Math.max(0, (time - previous) / 1000));
+        previous = time;
+        audioRef.current?.update();
+        const pulse = audioRef.current?.pulse() ?? { kick: 0, phase: 0, beat: 0 };
+        const energy = screen === "play" ? Math.min(1.18, .12 + comboRef.current / 10 + scoreRef.current / 12000) : screen === "result" ? 1.08 : screen === "countdown" ? .42 : .18;
+        backdrop.state.E += (energy - backdrop.state.E) * Math.min(1, delta * 4);
+        backdrop.state.kick = pulse.kick;
+        backdrop.state.cx = window.innerWidth / 2;
+        backdrop.state.cy = window.innerHeight * (screen === "play" ? .45 : .5);
+        backdrop.state.hue = (backdrop.state.hue + delta * (.015 + energy * .04)) % 1;
+        backdrop.state.flash *= Math.exp(-delta * 8);
+        backdrop.render(time);
+        front.update(delta); back.update(delta); back.draw(); front.draw();
+        frame = requestAnimationFrame(render);
+      };
+      frame = requestAnimationFrame(render);
+    });
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame);
+      backdropRef.current = null; fxRef.current = null; fxBackRef.current = null;
+    };
+  }, [screen]);
+
+  useEffect(() => {
+    const engine = audioRef.current;
+    if (!engine) return;
+    if (screen === "play" && sound) { engine.unlock(); engine.setMuted(false); engine.startMusic(); }
+    else engine.stopMusic();
+    return () => { if (screen === "play") engine.stopMusic(); };
+  }, [screen, sound]);
+
+  useEffect(() => {
+    if (screen !== "play") return;
+    const level = Math.min(9, Math.floor(combo / 2));
+    audioRef.current?.setLevel(level, 112 + level * 4);
+  }, [combo, screen]);
+
   const resetGame = useCallback(() => {
     setQuestionIndex(0); setAnswer(""); setScore(0); setCombo(0); setBestCombo(0); setRemaining(GAME_SECONDS); setFeedback(""); setOpponent(null); setSaved(false); setResultOpponentScore(null);
     scoreRef.current = 0; comboRef.current = 0; bestComboRef.current = 0; endAtRef.current = 0; finishingRef.current = false;
@@ -165,8 +270,8 @@ export default function Home() {
 
   const beginSolo = useCallback(() => {
     setMode("solo"); resetGame(); setSeed(Date.now() % 2_000_000_000); setStartAt(Date.now() + 3000); setCountdown(3); setScreen("countdown");
-    audio();
-  }, [audio, resetGame]);
+    unlockAudio()?.jingle();
+  }, [resetGame, unlockAudio]);
 
   const roomAction = async (action: "create" | "join") => {
     setRoomBusy(true); setRoomError("");
@@ -177,7 +282,7 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "room_error");
       setMode("duo"); setRoomCode(data.code); setPlayerId(data.playerId); setPlayers([{ id: data.playerId, nickname: name, slot: data.slot, score: 0, combo: 0, finished: false }]);
-      resetGame(); setScreen("lobby"); setDuoOpen(false); audio();
+      resetGame(); setScreen("lobby"); setDuoOpen(false); unlockAudio()?.jingle();
     } catch { setRoomError(t.invalidRoom); } finally { setRoomBusy(false); }
   };
 
@@ -208,17 +313,18 @@ export default function Home() {
       if (next <= 0) {
         endAtRef.current = startAt + GAME_SECONDS * 1000;
         setRemaining(GAME_SECONDS); setScreen("play");
-        const context = audio(); if (context) { tone(context, 520, context.currentTime, .12, .08, "square"); tone(context, 780, context.currentTime + .12, .2, .08, "square"); }
+        unlockAudio()?.jingle();
       } else setCountdown(next);
     };
     tick();
     const timer = window.setInterval(tick, 80);
     return () => window.clearInterval(timer);
-  }, [screen, startAt, audio]);
+  }, [screen, startAt, unlockAudio]);
 
   const finishGame = useCallback(async () => {
     if (finishingRef.current) return;
     finishingRef.current = true;
+    unlockAudio()?.finale();
     setScreen("result");
     const finalScore = scoreRef.current;
     const finalCombo = bestComboRef.current;
@@ -236,7 +342,7 @@ export default function Home() {
       }
       setSaved(true); void loadLeaderboard();
     } catch { setSaved(false); }
-  }, [lang, loadLeaderboard, mode, nickname, playerId, roomCode]);
+  }, [lang, loadLeaderboard, mode, nickname, playerId, roomCode, unlockAudio]);
 
   useEffect(() => {
     if (screen !== "play") return;
@@ -247,23 +353,6 @@ export default function Home() {
     }, 70);
     return () => window.clearInterval(timer);
   }, [screen, finishGame]);
-
-  useEffect(() => {
-    if (screen !== "play" || !sound) return;
-    const context = audio();
-    if (!context) return;
-    let beat = 0;
-    const tempo = Math.max(220, 520 - Math.min(combo, 16) * 15);
-    const pulse = () => {
-      const now = context.currentTime;
-      tone(context, beat % 4 === 0 ? 92 : 64, now, .09, beat % 4 === 0 ? .045 : .025, "sine");
-      if (combo >= 4) tone(context, beat % 2 ? 920 : 760, now + .02, .035, .012, "square");
-      beat += 1;
-    };
-    pulse();
-    const timer = window.setInterval(pulse, tempo);
-    return () => window.clearInterval(timer);
-  }, [screen, sound, combo, audio]);
 
   useEffect(() => {
     if (screen !== "play" || mode !== "duo" || !roomCode || !playerId) return;
@@ -336,20 +425,29 @@ export default function Home() {
     </header>
   );
 
+  const effectLayers = (
+    <>
+      <div ref={fallbackRef} className="dopa-fallback" aria-hidden="true" />
+      <canvas ref={bgCanvasRef} className="dopa-bg" aria-hidden="true" />
+      <canvas ref={fxBackCanvasRef} className="dopa-fx dopa-fx-back" aria-hidden="true" />
+      <canvas ref={fxCanvasRef} className="dopa-fx dopa-fx-front" aria-hidden="true" />
+    </>
+  );
+
   if (screen === "lobby") return (
-    <main className="game-shell centered-shell">{topbar}<section className="lobby-card"><div className="status-orbit"><Users /><i /></div><p className="eyebrow center"><span />{t.waiting}<span /></p><h1 className="room-code">{roomCode}</h1><Button className="copy-button" onClick={async () => { await navigator.clipboard.writeText(roomCode); setCopied(true); window.setTimeout(() => setCopied(false), 1300); }}><Copy size={16} />{copied ? t.copied : t.copyRoom}</Button><p className="lobby-note">{t.waitingNote}</p><div className="players-row">{[0, 1].map((index) => <div className={`player-slot ${players[index] ? "joined" : ""}`} key={index}><span>{players[index] ? players[index].nickname.slice(0, 1).toUpperCase() : "?"}</span><div><small>{t.player} {index + 1}</small><strong>{players[index]?.nickname ?? t.connecting}</strong></div>{players[index] && <Check size={18} />}</div>)}</div><button className="text-button" onClick={() => setScreen("home")}><ArrowLeft size={16} />{t.home}</button></section></main>
+    <main className="game-shell centered-shell">{effectLayers}{topbar}<section className="lobby-card"><div className="status-orbit"><Users /><i /></div><p className="eyebrow center"><span />{t.waiting}<span /></p><h1 className="room-code">{roomCode}</h1><Button className="copy-button" onClick={async () => { await navigator.clipboard.writeText(roomCode); setCopied(true); window.setTimeout(() => setCopied(false), 1300); }}><Copy size={16} />{copied ? t.copied : t.copyRoom}</Button><p className="lobby-note">{t.waitingNote}</p><div className="players-row">{[0, 1].map((index) => <div className={`player-slot ${players[index] ? "joined" : ""}`} key={index}><span>{players[index] ? players[index].nickname.slice(0, 1).toUpperCase() : "?"}</span><div><small>{t.player} {index + 1}</small><strong>{players[index]?.nickname ?? t.connecting}</strong></div>{players[index] && <Check size={18} />}</div>)}</div><button className="text-button" onClick={() => setScreen("home")}><ArrowLeft size={16} />{t.home}</button></section></main>
   );
 
   if (screen === "countdown") return (
-    <main className="game-shell countdown-shell"><div className="countdown-ring"><span>{countdown > 0 ? countdown : t.go}</span><i /><i /><i /></div><p>{t.getReady}</p>{mode === "duo" && <div className="versus-mini"><span>{players.find((item) => item.id === playerId)?.nickname ?? t.you}</span><b>VS</b><span>{players.find((item) => item.id !== playerId)?.nickname ?? t.opponent}</span></div>}</main>
+    <main className="game-shell countdown-shell">{effectLayers}<div className="countdown-ring"><span>{countdown > 0 ? countdown : t.go}</span><i /><i /><i /></div><p>{t.getReady}</p>{mode === "duo" && <div className="versus-mini"><span>{players.find((item) => item.id === playerId)?.nickname ?? t.you}</span><b>VS</b><span>{players.find((item) => item.id !== playerId)?.nickname ?? t.opponent}</span></div>}</main>
   );
 
   if (screen === "play") return (
     <main className={`game-shell play-shell combo-level-${Math.min(4, Math.floor(combo / 4))}`}>
-      <div className="beat-rays" />
+      {effectLayers}
       <header className="play-hud"><div className="hud-stat"><small>{t.score}</small><strong>{score.toLocaleString()}</strong></div><div className="timer"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" /><circle className="timer-progress" cx="22" cy="22" r="18" style={{ strokeDashoffset: `${113 - 113 * remaining / GAME_SECONDS}` }} /></svg><span>{Math.ceil(remaining)}</span></div><div className="hud-stat right"><small>{t.combo}</small><strong>×{combo}</strong></div></header>
       {mode === "duo" && <div className="opponent-bar"><span>{t.you} <b>{score}</b></span><i><i style={{ width: `${Math.min(100, score / Math.max(score, opponent?.score ?? 1) * 100)}%` }} /></i><span>{opponent?.nickname ?? t.opponent} <b>{opponent?.score ?? 0}</b></span></div>}
-      <section className={`question-stage ${feedback}`}>
+      <section ref={questionStageRef} className={`question-stage ${feedback}`}>
         <div className="combo-burst">{combo >= 3 && <><Zap /> {combo} {t.combo.toUpperCase()}</>}</div>
         <div className="question-number">{question.text}</div>
         <div className="answer-display"><span>=</span><strong>{answer || "?"}</strong></div>
@@ -360,17 +458,17 @@ export default function Home() {
   );
 
   if (screen === "result") return (
-    <main className="game-shell centered-shell result-shell">{topbar}<section className="result-card"><div className="result-crown"><Crown /></div><p className="eyebrow center"><span />{t.finished}<span /></p><h2>{resultTitle}</h2><div className="final-score">{scoreRef.current.toLocaleString()}</div><div className="result-stats"><div><small>{t.combo}</small><strong>×{bestComboRef.current}</strong></div><div><small>{t.questions}</small><strong>{questionIndex}</strong></div>{mode === "duo" && <div><small>{t.opponent}</small><strong>{resultOpponentScore ?? "…"}</strong></div>}</div><p className="save-state">{saved ? <><Check />{t.saved}</> : t.saving}</p><div className="result-actions"><Button onClick={mode === "solo" ? beginSolo : () => { setScreen("home"); setDuoOpen(true); }}><RotateCcw />{t.again}</Button><Button variant="outline" onClick={() => setScreen("home")}><ArrowLeft />{t.home}</Button></div></section></main>
+    <main className="game-shell centered-shell result-shell">{effectLayers}{topbar}<section className="result-card"><div className="result-crown"><Crown /></div><p className="eyebrow center"><span />{t.finished}<span /></p><h2>{resultTitle}</h2><div className="final-score">{scoreRef.current.toLocaleString()}</div><div className="result-stats"><div><small>{t.combo}</small><strong>×{bestComboRef.current}</strong></div><div><small>{t.questions}</small><strong>{questionIndex}</strong></div>{mode === "duo" && <div><small>{t.opponent}</small><strong>{resultOpponentScore ?? "…"}</strong></div>}</div><p className="save-state">{saved ? <><Check />{t.saved}</> : t.saving}</p><div className="result-actions"><Button onClick={mode === "solo" ? beginSolo : () => { setScreen("home"); setDuoOpen(true); }}><RotateCcw />{t.again}</Button><Button variant="outline" onClick={() => setScreen("home")}><ArrowLeft />{t.home}</Button></div></section></main>
   );
 
   return (
     <main className="game-shell">
-      <div className="ambient ambient-one" /><div className="ambient ambient-two" />{topbar}
+      {effectLayers}<div className="ambient ambient-one" /><div className="ambient ambient-two" />{topbar}
       <section className="home-grid">
         <div className="hero-copy"><p className="eyebrow"><span />{t.kicker}</p><h1>MATH CLASH</h1><p className="subtitle">{t.sub}</p><div className="equation-strip" aria-hidden="true"><span>8 + 7</span><b>=</b><em>15</em><i>COMBO ×4</i></div><p className="rules-copy">{t.rules}</p><p className="ready-label">{t.ready}</p><div className="mode-grid"><Button className="mode-card solo-card" onClick={beginSolo}><span className="mode-icon"><UserRound /></span><span><strong>{t.solo}</strong><small>{t.soloNote}</small></span><span className="mode-key">01</span></Button><Button className="mode-card duo-card" onClick={() => { setRoomError(""); setDuoOpen(true); }}><span className="mode-icon"><Users /></span><span><strong>{t.duo}</strong><small>{t.duoNote}</small></span><span className="mode-key">02</span></Button></div></div>
         <aside className="score-panel"><div className="panel-head"><span><Trophy size={18} /> {t.rank}</span><b>{t.live}</b></div>{leaderboard.length ? <ol>{leaderboard.slice(0, 5).map((row, index) => <li key={row.id}><i>{index + 1}</i><span className={`avatar ${index === 0 ? "coral" : index === 1 ? "cyan" : "yellow"}`}>{row.nickname.slice(0,1).toUpperCase()}</span><span><strong>{row.nickname}</strong><small>{row.bestCombo} {t.combo.toLowerCase()} · {row.mode === "duo" ? "VS" : "SOLO"}</small></span><b>{row.score.toLocaleString()}</b></li>)}</ol> : <div className="empty-rank"><Medal /><p>{t.empty}</p></div>}<p className="rank-note">{t.rankNote}</p><div className="pulse-line"><span /><span /><span /><span /><span /><span /><span /></div></aside>
       </section>
-      <footer><span>01</span><div /><p>FAST THINKING · BIG BEATS · FRIENDLY BATTLES</p><div /><span>∞</span></footer>
+      <footer><span>01</span><div /><p>FAST THINKING · BIG BEATS · FRIENDLY BATTLES</p><div /><a href="/dopa/LICENSE.txt" target="_blank" rel="noreferrer">FX: dopa-drill · MIT</a></footer>
 
       <Dialog open={duoOpen} onOpenChange={setDuoOpen}><DialogContent className="duo-dialog"><DialogHeader><div className="dialog-icon"><Gamepad2 /></div><DialogTitle>{t.duoTitle}</DialogTitle><DialogDescription>{t.duoDesc}</DialogDescription></DialogHeader><div className="dialog-tabs"><button className={joinMode === "create" ? "active" : ""} onClick={() => { setJoinMode("create"); setRoomError(""); }}>{t.createRoom}</button><button className={joinMode === "join" ? "active" : ""} onClick={() => { setJoinMode("join"); setRoomError(""); }}>{t.joinRoom}</button></div><label className="field-label">{t.nickname}<Input value={nickname} maxLength={14} onChange={(event) => setNickname(event.target.value)} placeholder={t.nameHint} /></label>{joinMode === "join" && <label className="field-label">{t.roomCode}<Input className="room-input" value={joinCode} maxLength={6} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z2-9]/g, ""))} placeholder="ABC123" /><small>{t.joinHint}</small></label>}{roomError && <p className="room-error">{roomError}</p>}<Button className="dialog-primary" disabled={roomBusy || !nickname.trim() || (joinMode === "join" && joinCode.length !== 6)} onClick={() => void roomAction(joinMode)}>{roomBusy ? t.connecting : joinMode === "create" ? t.createRoom : t.joinRoom}</Button></DialogContent></Dialog>
     </main>

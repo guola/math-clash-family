@@ -2,6 +2,10 @@
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
+@font-face { font-family: "Dela Gothic One"; src: url("/fonts/dela-gothic-one.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Zen Maru Gothic"; src: url("/fonts/zen-maru-gothic-bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Zen Maru Gothic"; src: url("/fonts/zen-maru-gothic-black.woff2") format("woff2"); font-weight: 900; font-display: swap; }
+
 :root {
   --background: #070b1e;
   --foreground: #f7f8ff;
@@ -24,7 +28,7 @@
 
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }
-body { margin: 0; background: var(--background); color: var(--foreground); font-family: Inter, ui-rounded, "SF Pro Rounded", "Hiragino Sans", "Noto Sans CJK SC", system-ui, sans-serif; }
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: "Zen Maru Gothic", ui-rounded, "SF Pro Rounded", "Hiragino Sans", "Noto Sans CJK SC", system-ui, sans-serif; }
 button { font: inherit; }
 .brand-mark, .sound-pill, .text-button { cursor: pointer; color: inherit; }
 .brand-mark { padding: 0; }
@@ -35,6 +39,13 @@ button { font: inherit; }
 .ambient { position: absolute; z-index: -2; width: 38vw; aspect-ratio: 1; border-radius: 50%; filter: blur(100px); opacity: .16; }
 .ambient-one { background: #35dfff; left: -16vw; top: 24vh; }
 .ambient-two { background: #ff3f88; right: -18vw; bottom: -12vh; }
+
+.dopa-bg, .dopa-fx, .dopa-fallback { position: fixed; inset: 0; width: 100vw; height: 100svh; pointer-events: none; }
+.dopa-fallback { display: none; z-index: 0; width: 150vmax; height: 150vmax; left: 50%; top: 50%; translate: -50% -50%; opacity: 0; }
+.dopa-bg { z-index: 0; }
+.dopa-fx-back { z-index: 1; }
+.dopa-fx-front { z-index: 20; }
+.topbar, .home-grid, footer, .lobby-card, .result-card, .play-hud, .opponent-bar, .question-stage, .number-pad, .countdown-ring, .countdown-shell > p, .versus-mini { position: relative; z-index: 2; }
 
 .topbar { display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 3; }
 .brand-mark { display: grid; grid-template-columns: repeat(2, 1fr); place-items: center; width: 50px; height: 42px; border: 1px solid #33406d; background: #0d1330; box-shadow: inset 0 0 24px #28356a55; transform: skew(-7deg); }
@@ -49,7 +60,7 @@ button { font: inherit; }
 .home-grid { width: min(1180px, 100%); margin: clamp(3rem, 8vh, 7rem) auto 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .7fr); gap: clamp(2rem, 7vw, 7rem); align-items: center; }
 .eyebrow { display: flex; align-items: center; gap: .65rem; color: #7f8ab3; font-size: clamp(.75rem, 1vw, .9rem); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .eyebrow span { width: 28px; height: 2px; background: #32e6ff; box-shadow: 0 0 12px #32e6ff; }
-h1 { margin: .55rem 0 .1rem; font-size: clamp(3.9rem, 9vw, 8.4rem); line-height: .88; letter-spacing: -.065em; font-weight: 1000; font-style: italic; background: linear-gradient(180deg, #fff 12%, #b9c2e3 52%, #59658d 98%); background-clip: text; color: transparent; filter: drop-shadow(0 10px 0 #030512); }
+h1 { margin: .55rem 0 .1rem; font-family: "Dela Gothic One", "Zen Maru Gothic", sans-serif; font-size: clamp(3.9rem, 9vw, 8.4rem); line-height: .88; letter-spacing: -.065em; font-weight: 900; font-style: italic; background: linear-gradient(180deg, #fff 12%, #b9c2e3 52%, #59658d 98%); background-clip: text; color: transparent; filter: drop-shadow(0 10px 0 #030512); }
 .subtitle { margin: .9rem 0 1.8rem; color: #d0d5eb; font-size: clamp(1.08rem, 1.8vw, 1.45rem); font-weight: 650; letter-spacing: .02em; }
 .equation-strip { width: min(520px, 100%); min-height: 64px; display: flex; align-items: center; gap: 1rem; padding: .65rem .9rem .65rem 1.25rem; border: 1px solid #2e3a6b; border-left: 3px solid #32e6ff; background: linear-gradient(90deg, #111a3e, #0b112b88); transform: skew(-4deg); box-shadow: 0 18px 50px #0005, inset 0 0 30px #364d9630; }
 .equation-strip > * { transform: skew(4deg); }.equation-strip span, .equation-strip b, .equation-strip em { font-size: clamp(1.35rem, 3vw, 2rem); font-weight: 950; font-style: normal; }.equation-strip b { color: #7480ac; }.equation-strip em { color: #f7e448; text-shadow: 0 0 18px #f7e44877; }.equation-strip i { margin-left: auto; color: #ff5b86; font-size: .72rem; font-weight: 950; letter-spacing: .08em; }
@@ -67,7 +78,7 @@ h1 { margin: .55rem 0 .1rem; font-size: clamp(3.9rem, 9vw, 8.4rem); line-height:
 .empty-rank { min-height: 230px; display: grid; place-content: center; justify-items: center; color: #59658c; text-align: center; }
 .empty-rank svg { width: 36px; height: 36px; color: #f7e448; opacity: .65; }
 .empty-rank p { margin: .8rem 0 0; font-size: .82rem; }
-footer { width: min(1180px, 100%); margin: clamp(3rem, 8vh, 6rem) auto 0; display: grid; grid-template-columns: auto 1fr auto 1fr auto; gap: .8rem; align-items: center; color: #566188; font-size: .6rem; letter-spacing: .17em; font-weight: 800; } footer div { height: 1px; background: #202a50; } footer p { margin: 0; white-space: nowrap; }
+footer { width: min(1180px, 100%); margin: clamp(3rem, 8vh, 6rem) auto 0; display: grid; grid-template-columns: auto 1fr auto 1fr auto; gap: .8rem; align-items: center; color: #566188; font-size: .6rem; letter-spacing: .17em; font-weight: 800; } footer div { height: 1px; background: #202a50; } footer p { margin: 0; white-space: nowrap; } footer a { color: #68749d; text-decoration: none; white-space: nowrap; }
 @keyframes beat { to { height: 100%; background: #ff5d8b; box-shadow: 0 0 12px #ff5d8b; } }
 
 /* Multiplayer setup */
@@ -101,10 +112,9 @@ footer { width: min(1180px, 100%); margin: clamp(3rem, 8vh, 6rem) auto 0; displa
 /* Play surface */
 .play-shell { min-height: 100svh; display: flex; flex-direction: column; align-items: center; padding: .8rem 1rem 1rem; background: radial-gradient(circle at 50% 38%, #172b66 0, #080e27 48%, #040614 84%); transition: background .25s ease; }
 .play-shell.combo-level-1 { background: radial-gradient(circle at 50% 38%, #17416d 0, #090f2c 52%, #040614 84%); }.play-shell.combo-level-2 { background: radial-gradient(circle at 50% 38%, #383178 0, #110f34 52%, #050617 84%); }.play-shell.combo-level-3, .play-shell.combo-level-4 { background: radial-gradient(circle at 50% 38%, #6b275d 0, #1d1039 52%, #060617 84%); }
-.beat-rays { position: absolute; width: 120vmax; aspect-ratio: 1; top: 44%; left: 50%; z-index: -1; transform: translate(-50%, -50%); opacity: calc(.08 + var(--combo-glow, .05)); background: repeating-conic-gradient(from 0deg, transparent 0 8deg, #4fcfff 9deg 10deg, transparent 11deg 18deg); animation: spin 28s linear infinite; mask-image: radial-gradient(circle, #000, transparent 67%); }
 .play-hud { width: min(680px, 100%); display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: center; }.hud-stat { display: grid; }.hud-stat.right { text-align: right; }.hud-stat small { color: #7481aa; font-size: .64rem; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }.hud-stat strong { font-size: 1.55rem; font-variant-numeric: tabular-nums; }.timer { position: relative; width: 58px; height: 58px; display: grid; place-items: center; }.timer svg { position: absolute; width: 58px; height: 58px; transform: rotate(-90deg); }.timer circle { fill: none; stroke: #293760; stroke-width: 3; }.timer .timer-progress { stroke: #f7e448; stroke-linecap: round; stroke-dasharray: 113; transition: stroke-dashoffset .1s linear; filter: drop-shadow(0 0 4px #f7e448); }.timer span { font-weight: 950; font-size: .95rem; }
 .opponent-bar { width: min(680px, 100%); display: grid; grid-template-columns: auto 1fr auto; gap: .7rem; align-items: center; margin-top: .55rem; color: #8490b4; font-size: .68rem; }.opponent-bar > i { height: 5px; overflow: hidden; border-radius: 99px; background: #272f55; }.opponent-bar > i > i { display: block; height: 100%; background: linear-gradient(90deg, #32e6ff, #ff5879); transition: width .3s ease; }
-.question-stage { flex: 1; width: min(680px, 100%); min-height: 270px; display: grid; place-content: center; justify-items: center; position: relative; }.question-number { font-size: clamp(4rem, 16vw, 8rem); line-height: .9; font-weight: 1000; letter-spacing: -.055em; color: #f7f8ff; text-shadow: 0 10px 0 #02040f, 0 0 40px #627de744; }.answer-display { min-height: 74px; display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }.answer-display span { color: #59658d; font-size: 2rem; font-weight: 900; }.answer-display strong { min-width: 100px; color: #f7e448; font-size: clamp(2.5rem, 9vw, 4rem); text-align: left; text-shadow: 0 0 24px #f7e44855; }
+.question-stage { flex: 1; width: min(680px, 100%); min-height: 270px; display: grid; place-content: center; justify-items: center; position: relative; }.question-number { font-family: "Dela Gothic One", "Zen Maru Gothic", sans-serif; font-size: clamp(4rem, 16vw, 8rem); line-height: .9; font-weight: 900; letter-spacing: -.055em; color: #f7f8ff; text-shadow: 0 10px 0 #1b1d4d, 0 0 40px #627de744; }.answer-display { min-height: 74px; display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }.answer-display span { color: #59658d; font-size: 2rem; font-weight: 900; }.answer-display strong { min-width: 100px; color: #f7e448; font-family: "Dela Gothic One", sans-serif; font-size: clamp(2.5rem, 9vw, 4rem); text-align: left; text-shadow: 0 0 24px #f7e44855; }
 .combo-burst { position: absolute; top: 8%; min-height: 28px; display: flex; align-items: center; gap: .35rem; color: #ff6d91; font-size: .8rem; font-weight: 1000; letter-spacing: .1em; animation: count-pop .35s ease; }.combo-burst svg { width: 16px; }.feedback-word { position: absolute; bottom: 3%; min-height: 22px; color: #5ce9a3; font-weight: 950; letter-spacing: .06em; }.question-stage.wrong .question-number { animation: shake .32s ease; color: #ff7695; }.question-stage.correct .question-number { animation: correct-pop .35s ease; }
 .number-pad { width: min(480px, 100%); display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }.number-pad button { min-height: clamp(48px, 8vh, 64px); border: 1px solid #354270; background: linear-gradient(180deg, #1c2750, #101731); color: white; border-radius: 12px; font-size: 1.25rem; font-weight: 900; box-shadow: inset 0 1px #ffffff12, 0 5px 0 #050818; touch-action: manipulation; }.number-pad button:active { transform: translateY(3px); box-shadow: inset 0 1px #ffffff12, 0 2px 0 #050818; }.number-pad .delete-key { color: #8590b3; }.number-pad .submit-key { background: linear-gradient(180deg, #f8e64e, #d7be24); color: #091028; border-color: #fff071; }
 
